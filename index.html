@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jack AID · #UnidosPorJack</title>
+<meta property="og:title" content="Jack AID · #UnidosPorJack">
+<meta property="og:description" content="Juega por un cuadro pintado a mano de tu mascota y apoya a Jack.">
+<!-- Para que WhatsApp muestre la foto, cambia por la URL completa: https://TU_USUARIO.github.io/TU_REPO/img/jack-hero.jpg -->
+<meta property="og:image" content="img/jack-hero.jpg">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{colors:{navy:'#10294B',deep:'#0A1B33',gold:'#F2A93B',sable:'#B9692A',cream:'#FFF7E8',sky:'#5FA8E6'},fontFamily:{display:['Fredoka','sans-serif'],body:['Nunito','sans-serif']}}}}</script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>body{font-family:Nunito,sans-serif;background:#0A1B33}.glow{background:radial-gradient(circle at 70% 0%,rgba(242,169,59,.28),transparent 55%)}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}</style>
+</head>
+<body class="text-cream">
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback}=React;
+
+/* ====== CONFIGURACIÓN (edita solo aquí) ====== */
+const CFG={
+  SUPABASE_URL:'https://cihvqgondcpkpajgmjva.supabase.co',
+  SUPABASE_KEY:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpaHZxZ29uZGNwa3BhamdtanZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzMzgyMDcsImV4cCI6MjEwNjkxNDIwN30.u1HGNQ7-hjzRfGNKfuEeY_HFMLa-TiZJJ346uL78t6M',
+  WHATSAPP:'573103002256', TITULAR:'Angie Acosta', MIN:20000,
+  CIERRE:new Date('2026-10-23T20:00:00-05:00')
+};
+/* ============================================= */
+
+const sb=CFG.SUPABASE_URL.startsWith('PEGA')?null:supabase.createClient(CFG.SUPABASE_URL,CFG.SUPABASE_KEY);
+const money=n=>'$'+n.toLocaleString('es-CO');
+const Spinner=()=><div className="h-8 w-8 rounded-full border-4 border-gold/30 border-t-gold animate-spin mx-auto" role="status" aria-label="Cargando"/>;
+const Alert=({children})=><div className="rounded-xl bg-red-500/15 border border-red-400/40 text-red-100 px-4 py-3 text-sm" role="alert">{children}</div>;
+
+function useTickets(admin){
+  const [rows,setRows]=useState([]),[loading,setLoading]=useState(true),[err,setErr]=useState('');
+  const load=useCallback(async()=>{
+    const {data,error}=await sb.from(admin?'boletos':'boletos_publicos').select('*').order('id');
+    if(error)setErr('No pudimos conectar con la rifa. Revisa tu internet e intenta de nuevo.');
+    else{setErr('');setRows(data)}
+    setLoading(false);
+  },[admin]);
+  useEffect(()=>{load();const t=setInterval(load,8000);return()=>clearInterval(t)},[load]);
+  return {rows,loading,err,load};
+}
+
+function Countdown(){
+  const calc=()=>Math.max(0,CFG.CIERRE-new Date());
+  const [ms,setMs]=useState(calc());
+  useEffect(()=>{const t=setInterval(()=>setMs(calc()),30000);return()=>clearInterval(t)},[]);
+  if(!ms)return <p className="font-display text-gold">Las reservas están cerradas. ¡Gracias por sumarte!</p>;
+  const d=Math.floor(ms/864e5),h=Math.floor(ms%864e5/36e5),m=Math.floor(ms%36e5/6e4);
+  return <p className="text-sm text-cream/80">Reservas abiertas: quedan <b className="font-display text-gold text-base">{d} d {h} h {m} min</b></p>;
+}
+
+function Cell({t,sel,closed,onTap}){
+  const free=t.estado==='disponible',paid=t.estado==='pagado';
+  const cls=free?(sel?'bg-gold text-deep ring-2 ring-white scale-105 shadow-lg shadow-gold/30':'bg-cream text-navy hover:bg-gold/80')
+    :paid?'bg-sky/25 text-sky/90':'bg-sable/30 text-gold/70';
+  return <button disabled={!free||closed} onClick={()=>onTap(t.id)} aria-pressed={sel}
+    aria-label={free?`Número ${t.id} disponible`:`Número ${t.id} ${t.estado}`}
+    className={`aspect-square rounded-xl flex flex-col items-center justify-center font-display text-xl leading-none transition active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white ${cls} ${free&&!closed?'':'cursor-not-allowed'}`}>
+    <span className={free?'':'line-through decoration-2 opacity-80'}>{paid&&'✓ '}{t.id}</span>
+    {!free&&<span className="font-body text-[9px] mt-1 max-w-full px-1 truncate">{t.nombre}</span>}
+  </button>;
+}
+
+function Public(){
+  const {rows,loading,err,load}=useTickets(false);
+  const [sel,setSel]=useState([]),[form,setForm]=useState(false),[nombre,setNombre]=useState(''),[tel,setTel]=useState('');
+  const [busy,setBusy]=useState(false),[msg,setMsg]=useState(''),[done,setDone]=useState(null);
+  const closed=new Date()>CFG.CIERRE;
+  const taken=rows.filter(r=>r.estado!=='disponible').length;
+  const tap=id=>setSel(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id].sort());
+
+  async function reservar(){
+    if(nombre.trim().length<3||tel.replace(/\D/g,'').length<7){setMsg('Escribe tu nombre completo y un número de WhatsApp válido.');return}
+    setBusy(true);setMsg('');
+    const ok=[],fail=[];let netErr=false;
+    for(const id of sel){
+      const {data,error}=await sb.rpc('reservar_boleto',{p_id:id,p_nombre:nombre,p_telefono:tel});
+      if(error){netErr=true;break}
+      (data?ok:fail).push(id);
+    }
+    await load();setBusy(false);
+    if(netErr&&!ok.length){setMsg('Error de conexión: no se guardó la reserva. Intenta de nuevo.');return}
+    setSel(s=>s.filter(x=>!ok.includes(x)&&!fail.includes(x)));
+    if(ok.length){setForm(false);setDone({ok,fail,nombre})}
+    else setMsg(`El ${fail.join(', ')} ya fue tomado por otra persona. Elige otro número.`),setSel(s=>s.filter(x=>!fail.includes(x)));
+  }
+  const wa=done&&`https://wa.me/${CFG.WHATSAPP}?text=${encodeURIComponent(`Hola Angie, soy ${done.nombre}. Reservé ${done.ok.length>1?'los números':'el número'} ${done.ok.join(', ')} en Jack AID. Te envío mi comprobante.`)}`;
+
+  return <main className="pb-28">
+    {/* HERO */}
+    <section className="glow bg-navy px-5 pt-8 pb-12 overflow-hidden">
+      <div className="max-w-3xl mx-auto grid sm:grid-cols-2 gap-8 items-center">
+        <div>
+          <span className="inline-block rounded-full bg-gold/15 text-gold px-3 py-1 text-sm font-semibold">#UnidosPorJack</span>
+          <h1 className="font-display font-bold text-6xl sm:text-7xl text-cream mt-3 leading-none">Jack AID</h1>
+          <p className="mt-4 text-lg text-cream/90">Jack está pasando por una situación de salud difícil y esta rifa es para apoyarlo. Tú juegas por un cuadro único de tu mascota; él recibe tu cariño. 🐾</p>
+          <a href="#numeros" className="inline-block mt-6 rounded-full bg-gold text-deep font-display font-semibold text-lg px-7 py-3 shadow-lg shadow-gold/20 active:scale-95 transition">Elegir mis números</a>
+          <div className="mt-4"><Countdown/></div>
+        </div>
+        <div className="relative mx-auto w-64 sm:w-full max-w-xs">
+          <div className="absolute -inset-3 rounded-t-full rounded-b-3xl bg-gold/30 blur-2xl"/>
+          <img src="img/jack-hero.jpg" alt="Jack, un collie de pelo largo con pañoleta, mirando a la cámara" className="relative w-full aspect-[3/4] object-cover rounded-t-full rounded-b-3xl border-4 border-gold"/>
+        </div>
+      </div>
+    </section>
+
+    {/* PREMIO */}
+    <section className="bg-cream text-navy px-5 py-10">
+      <div className="max-w-3xl mx-auto grid sm:grid-cols-2 gap-6 items-center">
+        <img src="img/cuadro.jpg" alt="Cuadro en acuarela de dos perros, con marco blanco" className="rounded-2xl shadow-xl w-full"/>
+        <div>
+          <h2 className="font-display font-bold text-3xl">El premio: tu mascota, hecha arte</h2>
+          <ul className="mt-3 space-y-2 text-[15px]">
+            <li>🎨 Pintado a mano por <a className="font-bold underline" href="https://instagram.com/ale_studio_creativo" target="_blank" rel="noopener">Alejandra Acuña (@ale_studio_creativo)</a></li>
+            <li>📐 Acuarela 20 x 30 cm, con marco y vidrio</li>
+            <li>📜 Incluye certificado de originalidad</li>
+            <li>📸 El ganador envía la foto única que quiere que se pinte</li>
+            <li>⏳ Listo en unos 20 días; la entrega se coordina directamente con el ganador</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    {/* NÚMEROS */}
+    <section id="numeros" className="px-4 pt-10 max-w-3xl mx-auto scroll-mt-4">
+      <h2 className="font-display font-bold text-3xl">Elige tus números</h2>
+      <p className="text-cream/80 mt-1">Aporte voluntario desde <b className="text-gold">{money(CFG.MIN)}</b> por número. Reserva todos los que quieras.</p>
+      <div className="mt-4 h-3 rounded-full bg-white/10 overflow-hidden"><div className="h-full bg-gold transition-all" style={{width:`${taken}%`}}/></div>
+      <p className="text-sm text-cream/70 mt-1">{taken} de 100 números ya juegan con Jack</p>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs mt-3 text-cream/80">
+        <span>🟨 Tu selección</span><span>⬜ Disponible</span><span>🟫 Reservado</span><span>🟦 Pagado</span>
+      </div>
+      <div className="mt-4">
+        {err&&<Alert>{err}</Alert>}
+        {loading?<div className="py-16"><Spinner/></div>:
+          <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">{rows.map(t=><Cell key={t.id} t={t} sel={sel.includes(t.id)} closed={closed} onTap={tap}/>)}</div>}
+      </div>
+    </section>
+
+    {/* REGLAS */}
+    <section className="px-5 mt-10 max-w-3xl mx-auto">
+      <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
+        <h3 className="font-display font-semibold text-xl text-gold">Cómo se juega</h3>
+        <ul className="mt-2 space-y-1.5 text-[15px] list-disc pl-5">
+          <li>Juega con las 2 últimas cifras del premio mayor de la Lotería de Boyacá, el sábado 24 de octubre.</li>
+          <li>Puedes reservar hasta el viernes 23 de octubre a las 8:00 p. m.</li>
+          <li><b>Boleta sin cancelar no juega.</b> Envía tu comprobante por WhatsApp.</li>
+          <li>Si el número ganador no fue vendido, se juega de nuevo con la lotería más cercana en jugar.</li>
+        </ul>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        <img src="img/jack-2.jpg" alt="Jack recostado en la cama con pañoleta" className="rounded-2xl w-full h-48 object-cover"/>
+        <img src="img/jack-3.jpg" alt="Jack en el carro, sonriendo" className="rounded-2xl w-full h-48 object-cover object-top"/>
+      </div>
+      <p className="text-center text-cream/60 text-sm mt-8">Gracias por sumarte a #UnidosPorJack 💛</p>
+    </section>
+
+    {/* BARRA DE SELECCIÓN */}
+    {sel.length>0&&!form&&<div className="fixed bottom-0 inset-x-0 bg-deep/95 backdrop-blur border-t border-gold/40 p-3 z-20">
+      <div className="max-w-3xl mx-auto flex items-center gap-3">
+        <p className="flex-1 text-sm"><b className="font-display text-gold text-lg">{sel.join(', ')}</b><br/>{sel.length} número{sel.length>1&&'s'} · desde {money(sel.length*CFG.MIN)}</p>
+        <button onClick={()=>{setMsg('');setForm(true)}} className="rounded-full bg-gold text-deep font-display font-semibold px-6 py-3 active:scale-95 transition">Reservar</button>
+      </div></div>}
+
+    {/* FORMULARIO */}
+    {form&&<div className="fixed inset-0 z-30 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={()=>!busy&&setForm(false)}>
+      <div className="w-full max-w-md bg-navy rounded-t-3xl sm:rounded-3xl p-6 border border-gold/30" onClick={e=>e.stopPropagation()}>
+        <h3 className="font-display font-bold text-2xl">Reservar {sel.length>1?'números':'número'} <span className="text-gold">{sel.join(', ')}</span></h3>
+        <label className="block mt-4 text-sm font-semibold">Nombre completo
+          <input value={nombre} onChange={e=>setNombre(e.target.value)} autoComplete="name" className="mt-1 w-full rounded-xl bg-cream text-navy px-4 py-3 text-base" placeholder="Ej: Laura Martínez"/></label>
+        <label className="block mt-3 text-sm font-semibold">Teléfono (WhatsApp)
+          <input value={tel} onChange={e=>setTel(e.target.value)} type="tel" inputMode="tel" autoComplete="tel" className="mt-1 w-full rounded-xl bg-cream text-navy px-4 py-3 text-base" placeholder="Ej: 3001234567"/></label>
+        {msg&&<div className="mt-3"><Alert>{msg}</Alert></div>}
+        <button onClick={reservar} disabled={busy} className="mt-5 w-full rounded-full bg-gold text-deep font-display font-semibold text-lg py-3 disabled:opacity-60 flex items-center justify-center gap-2">
+          {busy?<><span className="h-5 w-5 rounded-full border-4 border-deep/30 border-t-deep animate-spin"/>Reservando…</>:'Reservar'}</button>
+        <button onClick={()=>setForm(false)} disabled={busy} className="mt-2 w-full text-cream/70 py-2 text-sm">Cancelar</button>
+      </div></div>}
+
+    {/* CONFIRMACIÓN */}
+    {done&&<div className="fixed inset-0 z-40 bg-black/80 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="w-full max-w-md bg-cream text-navy rounded-3xl p-6">
+        <div className="text-5xl text-center">🎉</div>
+        <h3 className="font-display font-bold text-2xl text-center mt-1">¡Listo, {done.nombre.split(' ')[0]}!</h3>
+        <p className="text-center mt-1">Reservaste {done.ok.length>1?'los números':'el número'} <b className="font-display text-2xl">{done.ok.join(', ')}</b></p>
+        {done.fail.length>0&&<p className="text-sm text-center mt-2 text-red-700">El {done.fail.join(', ')} ya había sido tomado.</p>}
+        <div className="mt-4 rounded-2xl bg-white p-4 text-[15px]">
+          <p className="font-semibold">Para que tu número juegue:</p>
+          <p className="mt-1">Aporta desde <b>{money(done.ok.length*CFG.MIN)}</b> por Nequi, Breb o Llave al número <b>{CFG.WHATSAPP.slice(2)}</b> ({CFG.TITULAR}) y envía el comprobante por WhatsApp.</p>
+          <p className="mt-2 font-bold text-sable">Boleta sin cancelar no juega.</p>
+        </div>
+        <a href={wa} target="_blank" rel="noopener" className="mt-4 block text-center rounded-full bg-[#25D366] text-deep font-display font-semibold text-lg py-3">Enviar comprobante por WhatsApp</a>
+        <button onClick={()=>setDone(null)} className="mt-2 w-full py-2 text-sm text-navy/70">Cerrar</button>
+      </div></div>}
+  </main>;
+}
+
+function Admin(){
+  const [session,setSession]=useState(undefined),[email,setEmail]=useState(''),[pass,setPass]=useState(''),[err,setErr]=useState(''),[busy,setBusy]=useState(false);
+  useEffect(()=>{sb.auth.getSession().then(({data})=>setSession(data.session));
+    const {data:l}=sb.auth.onAuthStateChange((_,s)=>setSession(s));return()=>l.subscription.unsubscribe()},[]);
+  async function login(e){e.preventDefault();setBusy(true);setErr('');
+    const {error}=await sb.auth.signInWithPassword({email,password:pass});
+    if(error)setErr('Correo o contraseña incorrectos.');setBusy(false)}
+  if(session===undefined)return <div className="py-24"><Spinner/></div>;
+  if(!session)return <main className="max-w-sm mx-auto p-6 pt-20">
+    <h1 className="font-display font-bold text-3xl">Admin · Jack AID</h1>
+    <form onSubmit={login} className="mt-5 space-y-3">
+      <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Correo" className="w-full rounded-xl bg-cream text-navy px-4 py-3"/>
+      <input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="Contraseña" className="w-full rounded-xl bg-cream text-navy px-4 py-3"/>
+      {err&&<Alert>{err}</Alert>}
+      <button disabled={busy} className="w-full rounded-full bg-gold text-deep font-display font-semibold py-3 disabled:opacity-60">{busy?'Entrando…':'Entrar'}</button>
+    </form></main>;
+  return <Panel/>;
+}
+
+function Panel(){
+  const {rows,loading,err,load}=useTickets(true);
+  const [f,setF]=useState('reservado'),[busy,setBusy]=useState(''),[e2,setE2]=useState('');
+  const cnt=s=>rows.filter(r=>r.estado===s).length;
+  const list=rows.filter(r=>f==='todos'?r.estado!=='disponible':r.estado===f);
+  async function upd(id,patch){setBusy(id);setE2('');
+    const {error}=await sb.from('boletos').update(patch).eq('id',id);
+    if(error)setE2('No se pudo actualizar el '+id+'. Intenta de nuevo.');await load();setBusy('')}
+  function exportar(){
+    const data=rows.filter(r=>r.estado!=='disponible').map(r=>({Número:r.id,Estado:r.estado,Nombre:r.nombre_participante,Teléfono:r.telefono,Reservado:r.creado_en?new Date(r.creado_en).toLocaleString('es-CO'):''}));
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),'Participantes');
+    XLSX.writeFile(wb,'jack-aid-participantes.xlsx')}
+  return <main className="max-w-3xl mx-auto p-4 pb-20">
+    <div className="flex items-center justify-between gap-2">
+      <h1 className="font-display font-bold text-3xl">Admin · Jack AID</h1>
+      <button onClick={()=>sb.auth.signOut()} className="text-sm text-cream/70 underline">Salir</button></div>
+    <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+      {[['Disponibles',cnt('disponible'),'bg-cream text-navy'],['Pendientes',cnt('reservado'),'bg-sable/40'],['Pagados',cnt('pagado'),'bg-sky/30']].map(([a,b,c])=>
+        <div key={a} className={`rounded-xl py-3 ${c}`}><div className="font-display text-2xl font-bold">{b}</div><div className="text-xs">{a}</div></div>)}
+    </div>
+    <div className="flex flex-wrap gap-2 mt-4 items-center">
+      {[['reservado','Pendientes de pago'],['pagado','Pagados'],['todos','Todos']].map(([k,l])=>
+        <button key={k} onClick={()=>setF(k)} className={`rounded-full px-4 py-2 text-sm font-semibold ${f===k?'bg-gold text-deep':'bg-white/10'}`}>{l}</button>)}
+      <button onClick={exportar} className="ml-auto rounded-full bg-sky text-deep px-4 py-2 text-sm font-semibold">Exportar Excel</button>
+    </div>
+    {(err||e2)&&<div className="mt-3"><Alert>{err||e2}</Alert></div>}
+    {loading?<div className="py-16"><Spinner/></div>:<div className="mt-4 space-y-2">
+      {list.length===0&&<p className="text-cream/60 text-center py-10">No hay números en esta lista.</p>}
+      {list.map(r=><div key={r.id} className="rounded-2xl bg-white/5 border border-white/10 p-3 flex items-center gap-3">
+        <div className={`font-display text-2xl font-bold w-12 text-center ${r.estado==='pagado'?'text-sky':'text-gold'}`}>{r.id}</div>
+        <div className="flex-1 min-w-0"><p className="font-semibold truncate">{r.nombre_participante}</p>
+          <a className="text-sm text-cream/70 underline" target="_blank" rel="noopener" href={`https://wa.me/57${(r.telefono||'').replace(/\D/g,'').replace(/^57/,'')}`}>{r.telefono}</a></div>
+        {busy===r.id?<Spinner/>:<div className="flex flex-col gap-1">
+          {r.estado==='reservado'&&<button onClick={()=>upd(r.id,{estado:'pagado'})} className="rounded-full bg-gold text-deep text-sm font-semibold px-3 py-1">Pagado</button>}
+          <button onClick={()=>confirm(`¿Liberar el ${r.id}?`)&&upd(r.id,{estado:'disponible',nombre_participante:null,telefono:null,creado_en:null})} className="rounded-full bg-white/10 text-sm px-3 py-1">Liberar</button></div>}
+      </div>)}</div>}
+  </main>;
+}
+
+function App(){
+  const [h,setH]=useState(location.hash);
+  useEffect(()=>{const f=()=>setH(location.hash);addEventListener('hashchange',f);return()=>removeEventListener('hashchange',f)},[]);
+  if(!sb)return <main className="p-8 max-w-md mx-auto pt-24"><Alert>Falta configurar Supabase: pega tu Project URL y tu anon key en la sección CONFIGURACIÓN del archivo index.html.</Alert></main>;
+  return h==='#admin'?<Admin/>:<Public/>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
